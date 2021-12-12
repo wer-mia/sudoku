@@ -67,7 +67,8 @@ def get_cells_without_singles_and_true_n_tuples(subgrid):
 
 def get_remaining_digits(relevant_cells):
     remaining_digits = relevant_cells[0].options.union(*[relevant_cells[i].options
-                                                         for i in range(1, len(relevant_cells))])
+                                                         for i in range(len(relevant_cells))])
+    # the first union is with itself in case there is just one digit
     return remaining_digits
 
 
@@ -216,23 +217,54 @@ class Grid:
                     self.is_changed = True
                     self.check_subgrids(c)
 
-    def check_pointing_pairs(self):
-        pass
+    def check_pointing_pairs(self, box):  # they are triples in fact ;)
+        relevant_cells = get_cells_without_singles_and_true_n_tuples(box)
+        if relevant_cells:
+            for rc in list(self.rows.values()) + list(self.cols.values()):
+                overlap = [c for c in relevant_cells if c in rc.cells]
+                if len(overlap) >= 2:
+                    box_rest = [c for c in relevant_cells if c not in overlap]
+                    rc_rest = [c for c in get_cells_without_singles_and_true_n_tuples(rc) if c not in overlap]
+                    if box_rest and rc_rest:
+                        for d in get_remaining_digits(overlap):
+                            if d not in get_remaining_digits(box_rest) and d in get_remaining_digits(rc_rest):
+                                for c in rc_rest:
+                                    if d in c.options:
+                                        print(f'\n{c}: limiting option from {c.options} to {c.options - {d}} because '
+                                              f'pointing pair of {d} in {box}', end='')
+                                        c.options -= {d}
+                                        self.is_changed = True
+                                        self.check_subgrids(c)
+                            if d not in get_remaining_digits(rc_rest) and d in get_remaining_digits(box_rest):
+                                for c in box_rest:
+                                    if d in c.options:
+                                        print(f'\n{c}: limiting option from {c.options} to {c.options - {d}} because '
+                                              f'pointing pair of {d} in {rc}', end='')
+                                        c.options -= {d}
+                                        self.is_changed = True
+                                        self.check_subgrids(c)
 
     def scan_grid(self):
         self.is_changed = True
-        pipeline = [self.check_hidden_singles, self.check_close_n_tuples]
+        pipeline = [(self.check_hidden_singles, 'subgrid'),
+                    (self.check_close_n_tuples, 'subgrid'),
+                    (self.check_pointing_pairs, 'box')]
         while not self.is_solved() and self.is_changed:
             pipeline_copy = pipeline.copy()
             while pipeline_copy:
-                check = pipeline_copy.pop(0)
+                check, scan_type = pipeline_copy.pop(0)
                 self.is_changed = False
                 print(f'\nPerforming {check.__name__}')
-                for sg in self.subgrid_types:
-                    for i in range(1, 10):
-                        subgrid = self.get_subgrid(sg[1])[i]
-                        print(f' Checking {sg[0]} {subgrid}...', end='')
-                        check(subgrid)
+                if scan_type == 'subgrid':
+                    for sg in self.subgrid_types:
+                        for i in range(1, 10):
+                            subgrid = self.get_subgrid(sg[1])[i]
+                            print(f' Checking {sg[0]} {subgrid}...', end='')
+                            check(subgrid)
+                if scan_type == 'box':
+                    for b in self.boxes.values():
+                        print(f' Checking box {b}...', end='')
+                        check(b)
                 if self.is_changed:
                     print(self)
                     print(f'\nIs solved: {self.is_solved()}\n')

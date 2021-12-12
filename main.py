@@ -15,14 +15,14 @@ print(g)
 
 g.scan_grid()
 
-if not g.is_solved():
-    h = deepcopy(g)
-    for c in h.cells.values():
-        if len(c.options) == 1:
-            c.options = set()
-    print(h)
-    f = deepcopy(g)
-    for c in f.cells.values():
-        if len(c.options) != 1:
-            c.options = set()
-    print(f)
+# if not g.is_solved():
+#     h = deepcopy(g)
+#     for c in h.cells.values():
+#         if len(c.options) == 1:
+#             c.options = set()
+#     print(h)
+#     f = deepcopy(g)
+#     for c in f.cells.values():
+#         if len(c.options) != 1:
+#             c.options = set()
+#     print(f)
