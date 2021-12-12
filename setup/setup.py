@@ -1,5 +1,6 @@
 from collections import Counter
 from itertools import combinations
+import inspect
 
 
 class Cell:
@@ -51,6 +52,23 @@ class Box:
 
     def add_cell(self, x):
         self.cells.append(x)
+
+
+def get_cells_without_singles_and_true_n_tuples(subgrid):
+    relevant_cells = [c for c in subgrid.cells if len(c.options) > 1]  # remove singles
+    if len(relevant_cells) > 3:  # in lower count hidden singles or close n-tuples cannot happen
+        sets_counter = Counter([frozenset(c.options) for c in relevant_cells])
+        # remove true n-tuples
+        for s in sets_counter:
+            if len(s) == sets_counter[s]:
+                relevant_cells = [c for c in relevant_cells if c.options != s]
+    return relevant_cells
+
+
+def get_remaining_digits(relevant_cells):
+    remaining_digits = relevant_cells[0].options.union(*[relevant_cells[i].options
+                                                         for i in range(1, len(relevant_cells))])
+    return remaining_digits
 
 
 class Grid:
@@ -118,10 +136,9 @@ class Grid:
         return eval(f'self.{subgrid}')
 
     def input_value(self, cell, value):
-        c = self.cells[cell]
-        print(f'{c}: setting value to {value}')
-        c.options = {value}
-        self.check_subgrids(c)
+        print(f'{cell}: setting value to {value}')
+        cell.options = {value}
+        self.check_subgrids(cell)
 
     def check_subgrids(self, cell):
         value_set = cell.options
@@ -159,28 +176,23 @@ class Grid:
                         c.options -= value_set
                         self.check_subgrids(c)
 
-    def scan_grid(self):
-        for sg in self.subgrid_types:
-            for i in range(1, 10):
-                subgrid = self.get_subgrid(sg[1])[i]
-                print(f' Checking {sg[0]} {subgrid}...', end='')
-                self.check_close_n_tuples(subgrid)
-
-    def check_hidden_singles(self):
-        pass  # todo
+    def check_hidden_singles(self, subgrid):
+        relevant_cells = get_cells_without_singles_and_true_n_tuples(subgrid)
+        if len(relevant_cells) > 3:
+            remaining_digits_counter = Counter([o for c in relevant_cells for o in c.options])
+            hidden_singles = [d for d in remaining_digits_counter if remaining_digits_counter[d] == 1]
+            for h in hidden_singles:
+                for c in relevant_cells:
+                    if h in c.options and {h} != c.options:
+                        print(f'\nHidden single in {subgrid}, ', end='')
+                        self.is_changed = True
+                        self.input_value(c, h)
 
     def check_close_n_tuples(self, subgrid):
-        relevant_cells = [c for c in subgrid.cells if len(c.options) > 1]  # remove singles
-        if len(relevant_cells) > 3:  # in lower count close n-tuples cannot happen
-            sets_counter = Counter([frozenset(c.options) for c in relevant_cells])
-            # remove true n-tuples
-            for s in sets_counter:
-                if len(s) == sets_counter[s]:
-                    relevant_cells = [c for c in relevant_cells if c.options != s]
+        relevant_cells = get_cells_without_singles_and_true_n_tuples(subgrid)
         close_n_tuple = None
         if len(relevant_cells) > 3:
-            remaining_digits = relevant_cells[0].options.union(*[relevant_cells[i].options for i in
-                                                                 range(1, len(relevant_cells))])
+            remaining_digits = get_remaining_digits(relevant_cells)
             sets_counter = Counter([frozenset(c.options) for c in relevant_cells])
             close_n_tuples_counter = Counter()
             for i in range(3, len(remaining_digits)):
@@ -203,3 +215,25 @@ class Grid:
                     c.options -= close_n_tuple
                     self.is_changed = True
                     self.check_subgrids(c)
+
+    def check_pointing_pairs(self):
+        pass
+
+    def scan_grid(self):
+        self.is_changed = True
+        pipeline = [self.check_hidden_singles, self.check_close_n_tuples]
+        while not self.is_solved() and self.is_changed:
+            pipeline_copy = pipeline.copy()
+            while pipeline_copy:
+                check = pipeline_copy.pop(0)
+                self.is_changed = False
+                print(f'\nPerforming {check.__name__}')
+                for sg in self.subgrid_types:
+                    for i in range(1, 10):
+                        subgrid = self.get_subgrid(sg[1])[i]
+                        print(f' Checking {sg[0]} {subgrid}...', end='')
+                        check(subgrid)
+                if self.is_changed:
+                    print(self)
+                    print(f'\nIs solved: {self.is_solved()}\n')
+                    break  # to always perform the easier methods first after any change

@@ -1,5 +1,6 @@
 from setup.setup import Grid
 from s_input import s_string
+from copy import deepcopy
 
 g = Grid()
 
@@ -8,13 +9,20 @@ values = list(map(int, s_string))
 
 for cell, value in zip(cells, values):
     if value != 0:
-        g.input_value(cell, value)
+        g.input_value(g.cells[cell], value)
 
 print(g)
 
-g.is_changed = True
-while not g.is_solved() and g.is_changed:
-    g.is_changed = False
-    g.scan_grid()
-    print(g)
-    print(f'\nIs solved: {g.is_solved()}\n')
+g.scan_grid()
+
+if not g.is_solved():
+    h = deepcopy(g)
+    for c in h.cells.values():
+        if len(c.options) == 1:
+            c.options = set()
+    print(h)
+    f = deepcopy(g)
+    for c in f.cells.values():
+        if len(c.options) != 1:
+            c.options = set()
+    print(f)
