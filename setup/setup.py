@@ -7,11 +7,11 @@ class Cell:
         self.row = row
         self.col = col
         self.box = box
-        self.id = row * 10 + col
+        self.id = row.i * 10 + col.i
         self.options = set(range(1, 10))
 
     def __repr__(self):
-        return f'r{self.row}c{self.col}'
+        return f'{self.row}{self.col}'
 
     def get_subgrid(self, subgrid):
         return eval(f'self.{subgrid}')
@@ -66,9 +66,6 @@ class Grid:
         self.cells = {}
         for r in self.rows:
             for c in self.cols:
-                i = r*10+c
-                self.rows[r].cells.append(i)
-                self.cols[c].cells.append(i)
                 b = 0
                 box_list = [[a, b] for a in range(3, 10, 3) for b in range(3, 10, 3)]
                 for j, bl in enumerate(box_list):
@@ -77,8 +74,11 @@ class Grid:
                         break
                 if b == 0:
                     raise AttributeError('Box 0 found')
-                self.boxes[b].cells.append(i)
-                self.cells[i] = Cell(r, c, b)
+                i = r*10+c
+                self.cells[i] = Cell(self.rows[r], self.cols[c], self.boxes[b])
+                self.rows[r].cells.append(self.cells[i])
+                self.cols[c].cells.append(self.cells[i])
+                self.boxes[b].cells.append(self.cells[i])
         self.subgrid_types = [['row', 'rows'], ['col', 'cols'], ['box', 'boxes']]
         self.is_changed = False
 
@@ -126,12 +126,10 @@ class Grid:
     def check_subgrids(self, cell):
         value_set = cell.options
         for sg in self.subgrid_types:
-            cell_subgrid = cell.get_subgrid(sg[0])
-            grid_subgrid = self.get_subgrid(sg[1])[cell_subgrid]
-            print(f' Checking {sg[0]} {grid_subgrid}...', end='')
-            cells_in_subgrid = [self.cells[c] for c in grid_subgrid.cells]
+            subgrid = cell.get_subgrid(sg[0])
+            print(f' Checking {sg[0]} {subgrid}...', end='')
             if len(value_set) == 1:
-                for c in cells_in_subgrid:
+                for c in subgrid.cells:
                     if c.options != cell.options \
                             and c.options.intersection(value_set):
                         print(f'\n{c}: limiting option from {c.options} to {c.options - value_set} because {value_set} '
@@ -139,10 +137,10 @@ class Grid:
                         c.options -= value_set
                         self.check_subgrids(c)
             else:
-                self.check_n_tuples(cell, cells_in_subgrid, grid_subgrid)
+                self.check_n_tuples(cell, subgrid)
 
-    def check_n_tuples(self, cell, cells_in_subgrid, grid_subgrid):
-        relevant_cells = [c for c in cells_in_subgrid if len(c.options) > 1]  # remove singles
+    def check_n_tuples(self, cell, subgrid):
+        relevant_cells = [c for c in subgrid.cells if len(c.options) > 1]  # remove singles
         value_set = cell.options
         the_set = []
         the_rest = []
@@ -157,29 +155,29 @@ class Grid:
                 for c in the_rest:
                     if c.options.intersection(value_set):
                         print(f'\n{c}: limiting option from {c.options} to {c.options - value_set} because set '
-                              f'{value_set} in {grid_subgrid}', end='')
+                              f'{value_set} in {subgrid}', end='')
                         c.options -= value_set
                         self.check_subgrids(c)
 
     def scan_grid(self):
         for sg in self.subgrid_types:
             for i in range(1, 10):
-                grid_subgrid = self.get_subgrid(sg[1])[i]
-                print(f' Checking {sg[0]} {grid_subgrid}...', end='')
-                cells_in_subgrid = [self.cells[c] for c in grid_subgrid.cells]
-                self.check_close_n_tuples(cells_in_subgrid, grid_subgrid)
+                subgrid = self.get_subgrid(sg[1])[i]
+                print(f' Checking {sg[0]} {subgrid}...', end='')
+                self.check_close_n_tuples(subgrid)
 
     def check_hidden_singles(self):
         pass  # todo
 
-    def check_close_n_tuples(self, cells_in_subgrid, grid_subgrid):
-        relevant_cells = [c for c in cells_in_subgrid if len(c.options) > 1]  # remove singles
+    def check_close_n_tuples(self, subgrid):
+        relevant_cells = [c for c in subgrid.cells if len(c.options) > 1]  # remove singles
         if len(relevant_cells) > 3:  # in lower count close n-tuples cannot happen
             sets_counter = Counter([frozenset(c.options) for c in relevant_cells])
             # remove true n-tuples
             for s in sets_counter:
                 if len(s) == sets_counter[s]:
                     relevant_cells = [c for c in relevant_cells if c.options != s]
+        close_n_tuple = None
         if len(relevant_cells) > 3:
             remaining_digits = relevant_cells[0].options.union(*[relevant_cells[i].options for i in
                                                                  range(1, len(relevant_cells))])
@@ -192,17 +190,16 @@ class Grid:
                             if frozenset(combo) not in close_n_tuples_counter:
                                 close_n_tuples_counter[frozenset(combo)] = 0
                             close_n_tuples_counter[frozenset(combo)] += 1
-            close_n_tuple = None
             # select just one close n-tuple
             for nt in close_n_tuples_counter:
                 if len(nt) == close_n_tuples_counter[nt]:
                     close_n_tuple = nt
                     break
-            if close_n_tuple:
-                for c in relevant_cells:
-                    if not c.options.issubset(nt) and c.options.intersection(nt):
-                        print(f'\n{c}: limiting option from {c.options} to {c.options - nt} because set '
-                              f'{nt} in {grid_subgrid}', end='')
-                        c.options -= nt
-                        self.is_changed = True
-                        self.check_subgrids(c)
+        if close_n_tuple:
+            for c in relevant_cells:
+                if not c.options.issubset(close_n_tuple) and c.options.intersection(close_n_tuple):
+                    print(f'\n{c}: limiting option from {c.options} to {c.options - close_n_tuple} because set '
+                          f'{close_n_tuple} in {subgrid}', end='')
+                    c.options -= close_n_tuple
+                    self.is_changed = True
+                    self.check_subgrids(c)
