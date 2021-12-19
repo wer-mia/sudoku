@@ -1,6 +1,6 @@
 from collections import Counter
 from itertools import combinations
-import inspect
+from copy import copy
 
 
 class Cell:
@@ -54,14 +54,15 @@ class Box:
         self.cells.append(x)
 
 
-def get_cells_without_singles_and_true_n_tuples(subgrid):
+def get_cells_without_singles_and_true_n_tuples(subgrid, n_tuples=True):
     relevant_cells = [c for c in subgrid.cells if len(c.options) > 1]  # remove singles
-    if len(relevant_cells) > 3:  # in lower count hidden singles or close n-tuples cannot happen
-        sets_counter = Counter([frozenset(c.options) for c in relevant_cells])
-        # remove true n-tuples
-        for s in sets_counter:
-            if len(s) == sets_counter[s]:
-                relevant_cells = [c for c in relevant_cells if c.options != s]
+    if n_tuples:
+        if len(relevant_cells) > 3:  # in lower count hidden singles or close n-tuples cannot happen
+            sets_counter = Counter([frozenset(c.options) for c in relevant_cells])
+            # remove true n-tuples
+            for s in sets_counter:
+                if len(s) == sets_counter[s]:
+                    relevant_cells = [c for c in relevant_cells if c.options != s]
     return relevant_cells
 
 
@@ -73,33 +74,12 @@ def get_remaining_digits(relevant_cells):
 
 
 class Grid:
-    """useful scripts:
-        for r in g.rows.values():
-            print(r, [g.cells[x] for x in r.cells])
-        ... because row cells is only list of pointers, the actual cell objects are in grid.cells
-    """
-    def __init__(self, size=9):
+    def __init__(self, size):
+        self.size = size
         self.rows = {i: Row(i) for i in range(1, size+1)}
         self.cols = {i: Col(i) for i in range(1, size+1)}
         self.boxes = {i: Box(i) for i in range(1, size+1)}
         self.cells = {}
-        for r in self.rows:
-            for c in self.cols:
-                b = 0
-                box_list = [[a, b] for a in range(3, 10, 3) for b in range(3, 10, 3)]
-                for j, bl in enumerate(box_list):
-                    if r <= bl[0] and c <= bl[1]:
-                        b = j+1
-                        break
-                if b == 0:
-                    raise AttributeError('Box 0 found')
-                i = r*10+c
-                self.cells[i] = Cell(self.rows[r], self.cols[c], self.boxes[b])
-                self.rows[r].cells.append(self.cells[i])
-                self.cols[c].cells.append(self.cells[i])
-                self.boxes[b].cells.append(self.cells[i])
-        self.subgrid_types = [['row', 'rows'], ['col', 'cols'], ['box', 'boxes']]
-        self.is_changed = False
 
     def __repr__(self):
         lines = ['']
@@ -130,6 +110,33 @@ class Grid:
         lines.append('')
         return '\n'.join(lines)
 
+
+class GridFilled(Grid):
+    """useful scripts:
+        for r in g.rows.values():
+            print(r, [g.cells[x] for x in r.cells])
+        ... because row cells is only list of pointers, the actual cell objects are in grid.cells
+    """
+    def __init__(self, size=9):
+        super().__init__(size=size)
+        for r in self.rows:
+            for c in self.cols:
+                b = 0
+                box_list = [[a, b] for a in range(3, 10, 3) for b in range(3, 10, 3)]
+                for j, bl in enumerate(box_list):
+                    if r <= bl[0] and c <= bl[1]:
+                        b = j+1
+                        break
+                if b == 0:
+                    raise AttributeError('Box 0 found')
+                i = r*10+c
+                self.cells[i] = Cell(self.rows[r], self.cols[c], self.boxes[b])
+                self.rows[r].cells.append(self.cells[i])
+                self.cols[c].cells.append(self.cells[i])
+                self.boxes[b].cells.append(self.cells[i])
+        self.subgrid_types = [['row', 'rows'], ['col', 'cols'], ['box', 'boxes']]
+        self.is_changed = False
+
     def is_solved(self):
         return max([len(self.cells[c].options) for c in self.cells]) == 1
 
@@ -155,9 +162,10 @@ class Grid:
                         c.options -= value_set
                         self.check_subgrids(c)
             else:
-                self.check_n_tuples(cell, subgrid)
+                self.check_true_n_tuples(cell, subgrid)
 
-    def check_n_tuples(self, cell, subgrid):
+    def check_true_n_tuples(self, cell, subgrid):
+        # find true tuples as: 23 & 23 or 458 & 458 & 458
         relevant_cells = [c for c in subgrid.cells if len(c.options) > 1]  # remove singles
         value_set = cell.options
         the_set = []
@@ -178,6 +186,7 @@ class Grid:
                         self.check_subgrids(c)
 
     def check_hidden_singles(self, subgrid):
+        # todo amend after digit options
         relevant_cells = get_cells_without_singles_and_true_n_tuples(subgrid)
         if len(relevant_cells) > 3:
             remaining_digits_counter = Counter([o for c in relevant_cells for o in c.options])
@@ -190,6 +199,12 @@ class Grid:
                         self.input_value(c, h)
 
     def check_close_n_tuples(self, subgrid):
+        # find all types of naked tuples, even 345 & 34 & 35
+        # by finding tuple of any size, as a by product it find hidden tuples as they are complementary
+        # https://www.sudokuwiki.org/Naked_Candidates
+        # https://www.sudokuwiki.org/Hidden_Candidates
+        # hidden singles are in separate method as they are easy to spot then through complementary naked tuple
+        # technically speaking, check for hidden singles and check for true tuples are not necessary
         relevant_cells = get_cells_without_singles_and_true_n_tuples(subgrid)
         close_n_tuple = None
         if len(relevant_cells) > 3:
@@ -217,7 +232,9 @@ class Grid:
                     self.is_changed = True
                     self.check_subgrids(c)
 
-    def check_pointing_pairs(self, box):  # they are triples in fact ;)
+    def check_intersection_removal(self, box):
+        # e.g. pointing pairs
+        # https://www.sudokuwiki.org/Intersection_Removal
         relevant_cells = get_cells_without_singles_and_true_n_tuples(box)
         if relevant_cells:
             for rc in list(self.rows.values()) + list(self.cols.values()):
@@ -244,11 +261,26 @@ class Grid:
                                         self.is_changed = True
                                         self.check_subgrids(c)
 
+    def get_digit_options(self, digit):  # todo
+        digit_options = Digit(digit, self)
+        if len(digit_options.cells) > 9:
+            ocurance_counter = 1
+
+    def check_generalized_x_wing(self, subgrid):
+        # todo for sets
+        # todo jellyfish, swordfish, scyscraper etc
+        relevant_cells = get_cells_without_singles_and_true_n_tuples(subgrid, n_tuples=False)
+        for d in get_remaining_digits(relevant_cells):
+            x=1
+        pass
+
     def scan_grid(self):
         self.is_changed = True
         pipeline = [(self.check_hidden_singles, 'subgrid'),
                     (self.check_close_n_tuples, 'subgrid'),
-                    (self.check_pointing_pairs, 'box')]
+                    (self.check_intersection_removal, 'box'),
+                    (self.check_generalized_x_wing, 'subgrid'),
+                    (self.get_digit_options, 'digit')]
         while not self.is_solved() and self.is_changed:
             pipeline_copy = pipeline.copy()
             while pipeline_copy:
@@ -265,7 +297,23 @@ class Grid:
                     for b in self.boxes.values():
                         print(f' Checking box {b}...', end='')
                         check(b)
+                if scan_type == 'digit':
+                    for digit in range(1, 10):
+                        check(digit)
                 if self.is_changed:
                     print(self)
                     print(f'\nIs solved: {self.is_solved()}\n')
                     break  # to always perform the easier methods first after any change
+
+
+class Digit(Grid):
+    def __init__(self, digit, grid):
+        self.digit = digit
+        self.grid = grid
+        super().__init__(size=grid.size)
+        for x in grid.cells.values():
+            if digit in x.options:
+                self.cells[x.id] = x
+                self.rows[x.row.i].cells.append(x)
+                self.cols[x.col.i].cells.append(x)
+                self.boxes[x.box.i].cells.append(x)
